@@ -11,5 +11,3 @@ if "API_USER" in os.environ and "API_PASSWORD" in os.environ:
 else:
     print("Variables Missing!")
     print("Create API_USER and API_PASSWORD environment variables, then re-run script")
-
-
