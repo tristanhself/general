@@ -1,14 +1,14 @@
 #!/bin/bash
 
 # Dell ECS Hardware Monitoring Script - V1.0
-# Version 1.0 - 26/01/2022
+# Version 1.0 - 6/01/2022
 
-# The script should be set to be executable (by root only yuk!) and then run from a Cron job at whatever interval as required, perhaps once a day, this
+# The script should be set to be executable and run using "admin" and then run from a Cron job at whatever interval as required, perhaps once an hour, this
 # would then send back the result to NagiosXI for visibility to System Administrators.
 
 # Set Variables for the script.
-NAGIOSURL="https://nagios.domain.com/nrdp"
-NAGIOSTOKEN="<token>"
+NAGIOSURL="https://nagios.domain.com/nrdp/"
+NAGIOSTOKEN="<keyhere>"
 PSERRORCOUNT=0
 FANERRORCOUNT=0
 NICERRORCOUNT=0
@@ -19,17 +19,19 @@ ECSNODENAME=${ECSNODENAMERAW//pub-/}
 
 
 # Get the output from iDRAC of the status and put into an array.
-readarray -t my_array < <(racadm getsensorinfo)
+readarray -t my_array < <(sudo /opt/dell/srvadmin/sbin/racadm getsensorinfo)
 
 # Get the status of the NICS into an array.
 readarray -t my_array2 < <(ip addr)
 
+
+
 # Check if the response is empty, i.e. the command to collect the data didn't work.
-#if [[ ${#my_array[@]} == 0 ]]; then
-#       echo "CRITICAL - Unable to obtain hardware information!"
-#        /tmp/send_nrdp.sh -u $NAGIOSURL -t $NAGIOSTOKEN -H $ECSNODENAME -s "Power Supply Status" -S 2 -o "ERROR - Unable to obtain hardware information!"
-#       exit 2
-#fi
+if [[ ! ${my_array[*]} ]]; then
+        echo "CRITICAL - Unable to obtain hardware information!"
+        /tmp/send_nrdp.sh -u $NAGIOSURL -t $NAGIOSTOKEN -H $ECSNODENAME -s "Node Health Status" -S 2 -o "ERROR - Unable to obtain hardware information!"
+        exit 2
+fi
 
 ############################### Process the output for errors and status ##########################################
 
@@ -95,7 +97,7 @@ do
         fi
 
         # Check Private NIC 1
-        if [[ $LINESTRING2 == *"pslave-0"* ]]; then
+        if [[ $LINESTRING2 == *"pslave-1"* ]]; then
                 PIVNIC1STATUS=`echo $LINESTRING2 | awk '{print $11}'`
                 if [ $PIVNIC1STATUS != "UP" ]; then
                         # A faulty component has been found, increment the error count by one.
@@ -104,7 +106,7 @@ do
         fi
 
         # Check Public NIC 0
-        if [[ $LINESTRING2 == *"pslave-0"* ]]; then
+        if [[ $LINESTRING2 == *"slave-0"* ]]; then
                 PUBNIC0STATUS=`echo $LINESTRING2 | awk '{print $11}'`
                 if [ $PUBNIC0STATUS != "UP" ]; then
                         # A faulty component has been found, increment the error count by one.
@@ -113,7 +115,7 @@ do
         fi
 
         # Check Public NIC 1
-        if [[ $LINESTRING2 == *"pslave-0"* ]]; then
+        if [[ $LINESTRING2 == *"slave-1"* ]]; then
                 PUBNIC1STATUS=`echo $LINESTRING2 | awk '{print $11}'`
                 if [ $PUBNIC1STATUS != "UP" ]; then
                         # A faulty component has been found, increment the error count by one.
@@ -150,3 +152,4 @@ else
         echo "CRITICAL - Node Health Status: DEGRADED - PSU Faults:" $PSERRORCOUNT", Fan Faults:" $FANERRORCOUNT", NIC Errors:" $NICERRORCOUNT
         /tmp/send_nrdp.sh -u $NAGIOSURL -t $NAGIOSTOKEN -H $ECSNODENAME -s "Node Health Status" -S 2 -o "DEGRADED - PSU Faults: $PSERRORCOUNT, Fan Faults: $FANERRORCOUNT, NIC Errors: $NICERRORCOUNT"
 fi
+
