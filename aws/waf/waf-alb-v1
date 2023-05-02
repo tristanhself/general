@@ -1,0 +1,81 @@
+# The below CloudFormation template is a snippet. To make use of this you would attach the WAF to an existing Application Load Balancer (ALB), in this case the ALB is
+# defined as: "ApplicationLoadBalancer".
+
+# Web Application Firewall (WAF)
+
+  webAcl:
+    Type: 'AWS::WAFv2::WebACL'
+    Properties:
+      Description: Web ACL for Application Load Balancer
+      Name: !Sub '${AWS::StackName}-web-owasp'
+      DefaultAction:
+        Allow: {}
+      Rules:
+        - Name: Anonymous-IpList
+          Priority: 0
+          Statement:
+            ManagedRuleGroupStatement:
+              VendorName: AWS
+              Name: AWSManagedRulesAnonymousIpList
+              ExcludedRules: []
+          OverrideAction:
+            None: {}
+          VisibilityConfig:
+            SampledRequestsEnabled: true
+            CloudWatchMetricsEnabled: true
+            MetricName: !Sub '${AWS::StackName}-anonymous-iplist-metric'
+        - Name: SQLInject-RuleSet
+          Priority: 1
+          Statement:
+            ManagedRuleGroupStatement:
+              VendorName: AWS
+              Name: AWSManagedRulesSQLiRuleSet
+          OverrideAction:
+            None: {}
+          VisibilityConfig:
+            SampledRequestsEnabled: true
+            CloudWatchMetricsEnabled: true
+            MetricName: !Sub '${AWS::StackName}-SQLinjection-ruleset-metric'
+      Scope: REGIONAL
+      # Tags:
+      #   - Key: Name
+      #     Value: !Sub '${AWS::StackName} - OWASP Web ACL'
+      VisibilityConfig:
+        SampledRequestsEnabled: true
+        CloudWatchMetricsEnabled: true
+        MetricName: !Sub '${AWS::StackName}-web-owasp-metric'
+
+  cloudwatchLogsGroup:
+    Type: 'AWS::Logs::LogGroup'
+    Properties:
+      LogGroupName: !Sub 'aws-waf-logs-${AWS::StackName}-web-owasp'
+      RetentionInDays: 180
+
+  webAcllogging:
+    Type: 'AWS::WAFv2::LoggingConfiguration'
+    Properties:
+      ResourceArn: !GetAtt 
+        - webAcl
+        - Arn
+      LogDestinationConfigs:
+        - !Sub >-
+          arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:aws-waf-logs-${AWS::StackName}-web-owasp
+      LoggingFilter:
+        DefaultBehavior: KEEP
+        Filters:
+          - Behavior: KEEP
+            Conditions:
+              - ActionCondition:
+                  Action: BLOCK
+            Requirement: MEETS_ANY
+      RedactedFields:
+        - SingleHeader:
+            Name: password
+
+  albWebACLAssociation:
+    Type: 'AWS::WAFv2::WebACLAssociation'
+    Properties:
+      ResourceArn: !Ref ApplicationLoadBalancer
+      WebACLArn: !GetAtt 
+        - webAcl
+        - Arn
