@@ -1,0 +1,183 @@
+---
+AWSTemplateFormatVersion: 2010-09-09
+Description: AWS Cloudformation Template - AWS Static Website Template - <Site FQDN>
+##################################################
+# Website Parameters - Inputs
+##################################################
+
+Parameters:
+  
+  DomainName:
+    Description: The primary FQDN of the website, it will also become the prefix for all Origin and Logging bucket names to ensure uniqueness and ease of identification.
+    Type: String
+    Default: "<Site FQDN>"
+
+  CertificateARN:
+    Description: The ARN of the certificate to be used by the CloudFront Distribution. Certificate must be in us-east-1.
+    Type: String
+    Default: "<SSL Certificate ARN>"
+
+Resources:
+
+##################################################
+# S3 Origin Bucket Configuration (Website Source)
+##################################################
+
+  OriginBucket1:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Join ['-',[!Ref 'DomainName', 'originbucket1']]
+      PublicAccessBlockConfiguration: 
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      Tags:
+        - Key: Stack
+          Value: !Sub '${AWS::StackName}'
+        - Key: Name
+          Value: !Join ['-',[!Ref 'DomainName', 'originbucket1']]
+
+##########################################################################
+# CloudFront Distribution
+##########################################################################
+
+  OriginDistribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Aliases:
+          - !Ref 'DomainName'
+        Comment: !Ref 'DomainName'
+        DefaultCacheBehavior:
+          Compress: true
+          ForwardedValues:
+            QueryString: false
+          TargetOriginId: OriginBucket1 #S3Origin
+          ViewerProtocolPolicy: redirect-to-https
+        DefaultRootObject: index.html
+        CustomErrorResponses:
+          - ErrorCachingMinTTL: 300
+            ErrorCode: 403
+            ResponseCode: 200
+            ResponsePagePath: /error.html
+          - ErrorCachingMinTTL: 300
+            ErrorCode: 404
+            ResponseCode: 200
+            ResponsePagePath: /error.html
+        Enabled: true
+        HttpVersion: http2
+        IPV6Enabled: true
+        Origins:
+          - Id: OriginBucket1
+            DomainName: !GetAtt OriginBucket1.DomainName # Refers to the FQDN of the S3 Bucket
+            S3OriginConfig:
+              OriginAccessIdentity: '' #old way
+            OriginAccessControlId: !GetAtt CloudFrontOriginAccessControl.Id
+        PriceClass: PriceClass_All # Global Distribution 'PriceClass_All', 'PriceClass_200' US and EU, 'PriceClass_100' Asia.
+        ViewerCertificate:
+          AcmCertificateArn: !Ref CertificateARN
+          MinimumProtocolVersion: TLSv1
+          SslSupportMethod: sni-only
+        Logging:
+          Bucket: !GetAtt AccessLogBucket.DomainName # Refers to the FQDN of the S3 Bucket
+          IncludeCookies: false
+          Prefix: cloudfront/
+      Tags:
+        - Key: Stack
+          Value: !Sub '${AWS::StackName}'
+        - Key: Name
+          Value: !Join ['-',[!Ref 'DomainName', 'cloudfront-distribution']]
+
+######################################################################################################
+# S3 Origin Bucket Policy Configuration - Allows access to Origin Buckets from CloudFront Distribution
+######################################################################################################
+
+  OriginBucket1Policy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref OriginBucket1
+      PolicyDocument:
+        Statement:
+        - Action: s3:GetObject
+          Effect: Allow
+          Resource: !Sub ${OriginBucket1.Arn}/*
+          Principal:
+            Service: cloudfront.amazonaws.com
+          Condition:
+            StringEquals:
+              AWS:SourceArn: !Sub arn:aws:cloudfront::${AWS::AccountId}:distribution/${OriginDistribution}
+
+  CloudFrontOriginAccessControl:
+    Type: AWS::CloudFront::OriginAccessControl
+    Properties: 
+      OriginAccessControlConfig:
+        Description: !Join [' - ',[!Ref 'DomainName', 'Origin Access Control']]
+        Name: !Join ['-',[!Sub '${AWS::StackName}', 'oac']]
+        OriginAccessControlOriginType: s3
+        SigningBehavior: always
+        SigningProtocol: sigv4
+
+#######################################################
+# S3 Logging Bucket Configuration (Logging Destination)
+#######################################################
+
+  AccessLogBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Join ['-',[!Ref 'DomainName', 'accesslogbucket']]
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: ObjectWriter # https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-properties-s3-bucket-ownershipcontrolsrule.html
+      PublicAccessBlockConfiguration: 
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      LifecycleConfiguration:
+        Rules:
+          - Id: Retain2yrs
+            Status: Enabled
+            ExpirationInDays: 730
+            Transitions:
+              - StorageClass: STANDARD_IA
+                TransitionInDays: 30
+      Tags:
+      - Key: Stack
+        Value: !Sub '${AWS::StackName}'
+      - Key: Name
+        Value: !Join ['-',[!Ref 'DomainName', 'accesslogbucket']]
+
+  AccessLogBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref AccessLogBucket
+      PolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: cloudfront.amazonaws.com
+            Action: s3:* # Bit open, don't you think?
+            Resource:
+              - !Sub ${AccessLogBucket.Arn}/*
+              - !GetAtt AccessLogBucket.Arn
+            Condition:
+              StringEquals:
+                AWS:SourceArn: !Sub arn:aws:cloudfront::${AWS::AccountId}:distribution/${OriginDistribution}
+
+##################################################
+# Outputs
+##################################################
+
+Outputs:
+
+  CloudFrontDomainName:
+    Description: "FQDN to point CNAMEs(that clients will use) to access your website."
+    Value: !GetAtt OriginDistribution.DomainName
+
+##################################################
+# Additional Information
+##################################################
+
+# The Stack-Name is the name of the Cloudformation stack, it can't sadly be the FQDN.
+# The S3 Bucket Name should be the website Fully Qualified Domain Name (FQDN) but can't have dots in the name.
