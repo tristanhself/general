@@ -1,0 +1,51 @@
+---
+AWSTemplateFormatVersion: 2010-09-09
+Description: net-production-tgw - Terraform Environment Bootstrap
+# Define the Parameters, these are the inputs to your Cloudformation template, i.e. the arguments you pass when you apply the template to create the stack.
+# You should use Parameters for things are changeable from template deployment to template deployment, e.g. usernames, passwords, database names etc.
+
+# To apply from the command line use the below, there are some example values added, remove / slashes and put onto one line, slashes shown for clarity. All on one line.
+# aws cloudformation create-stack --template-body file://bootstrap.yaml --stack-name net-production-tgw  --capabilities CAPABILITY_NAMED_IAM
+
+Parameters:
+
+  BucketName: { Type: String, Default: "net-production-tgw" }
+  DynamoDBTableName: { Type: String, Default: "net-production-tgw" }
+  EnvironmentValue: { Type: String, Default: "prod" }
+  wsiownerValue: { Type: String, Default: "username" }
+  projectcodeValue: { Type: String, Default: "1234" }
+
+Resources:
+
+  TerraformStateBucket:
+    Type: "AWS::S3::Bucket"
+    Properties:
+      BucketName: !Ref BucketName
+      VersioningConfiguration:
+        Status: Enabled
+      Tags:
+        - Key: Environment
+          Value: !Ref EnvironmentValue
+        - Key: wsi_owner
+          Value: !Ref wsiownerValue
+        - Key: project-code
+          Value: !Ref projectcodeValue
+
+  TerraformStateLockTable:
+    Type: 'AWS::DynamoDB::Table'
+    Properties:
+      TableName: !Ref DynamoDBTableName
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: LockID
+          AttributeType: S
+      KeySchema:
+        - AttributeName: LockID
+          KeyType: HASH
+      Tags:
+      - Key: Environment
+        Value: !Ref EnvironmentValue
+      - Key: wsi_owner
+        Value: !Ref wsiownerValue
+      - Key: project-code
+        Value: !Ref projectcodeValue
