@@ -1,0 +1,111 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  Monthly AWS Budgets configuration:
+  - $200 monthly COST budget
+  - Alerts at 90% ACTUAL, 100% ACTUAL, 100% FORECASTED
+  - Each alert emails a specified address
+
+Parameters:
+  NotificationEmail:
+    Type: String
+    Description: Email address to receive budget alerts
+    AllowedPattern: '^[^\s@]+@[^\s@]+\.[^\s@]+$'
+    ConstraintDescription: Must be a valid email address.
+  BudgetName:
+    Type: String
+    Default: "<Account Name> - Monthly Spend Budget"
+    Description: Name for the AWS Budget.
+  BudgetAmount:
+    Type: Number
+    Default: 200
+    MinValue: 1
+    Description: Monthly budget amount in USD.
+  CODNameMon:
+    Type: String
+    Default: "<Account Name> - Cost Anomaly Detection Monitor"
+    Description: Name for the Cost Anomaly Detection Monitor.
+  CODNameSub:
+    Type: String
+    Default: "<Account Name> - Cost Anomaly Detection Subscription"
+    Description: Name for the Cost Anomaly Detection Subscription.
+  AnomalyThresholdPercent:
+    Type: Number
+    Default: 10
+    MinValue: 0
+    Description: Percentage above expected spend required to alert.
+  
+Resources:
+  MonthlyBudget:
+    Type: AWS::Budgets::Budget
+    Properties:
+      Budget:
+        BudgetName: !Ref BudgetName
+        BudgetType: COST
+        TimeUnit: MONTHLY
+        BudgetLimit:
+          Amount: !Ref BudgetAmount
+          Unit: USD
+        CostTypes:
+          IncludeCredit: false
+          IncludeRefund: false
+      NotificationsWithSubscribers:
+        # 90% ACTUAL
+        - Notification:
+            ComparisonOperator: GREATER_THAN
+            NotificationType: ACTUAL
+            Threshold: 90
+            ThresholdType: PERCENTAGE
+          Subscribers:
+            - SubscriptionType: EMAIL
+              Address: !Ref NotificationEmail
+        # 100% ACTUAL
+        - Notification:
+            ComparisonOperator: GREATER_THAN
+            NotificationType: ACTUAL
+            Threshold: 100
+            ThresholdType: PERCENTAGE
+          Subscribers:
+            - SubscriptionType: EMAIL
+              Address: !Ref NotificationEmail
+        # 100% FORECASTED
+        - Notification:
+            ComparisonOperator: GREATER_THAN
+            NotificationType: FORECASTED
+            Threshold: 100
+            ThresholdType: PERCENTAGE
+          Subscribers:
+            - SubscriptionType: EMAIL
+              Address: !Ref NotificationEmail
+
+  CostAnomalyMonitor:
+    Type: AWS::CE::AnomalyMonitor
+    Properties:
+      MonitorName: !Ref CODNameMon
+      MonitorType: DIMENSIONAL
+      MonitorDimension: SERVICE 
+
+  CostAnomalySubscription:
+    Type: AWS::CE::AnomalySubscription
+    Properties:
+      SubscriptionName: !Ref CODNameSub
+      ThresholdExpression: !Sub '{
+        "Dimensions": {
+          "Key": "ANOMALY_TOTAL_IMPACT_PERCENTAGE",
+          "MatchOptions": [ "GREATER_THAN_OR_EQUAL" ],
+          "Values": [ "${AnomalyThresholdPercent}" ]
+        }
+      }'
+      Frequency: "DAILY"
+      MonitorArnList:
+        - !Ref CostAnomalyMonitor
+      Subscribers:
+        - Type: EMAIL
+          Address: !Ref NotificationEmail
+
+Outputs:
+  CreatedBudgetName:
+    Description: The name of the created budget.
+    Value: !Ref BudgetName
+  AlertEmail:
+    Description: The email address receiving budget alerts.
+    Value: !Ref NotificationEmail
