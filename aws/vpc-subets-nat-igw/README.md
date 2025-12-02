@@ -25,9 +25,10 @@ A simple guide is given below to use this pattern, however you should consult yo
 
 1. Clone the repository to your workstation.
 
-2. CD to the cloned repository.
+2. CD to the cloned repository and create state directory.
 ```
 cd ~/vscode/aws/snippets/terraform/vpc-subnets-nat-igw
+mkdir state_data
 ```
 
 3. Logon with SSO to AWS.
